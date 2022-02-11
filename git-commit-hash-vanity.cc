@@ -74,8 +74,9 @@ void crack_thread(const std::string catfile_fmt, long timestamp_begin, long time
                 // TODO: add more requirement for check-hash
                 auto outputbuf = new std::string(commit_msg.size() + 128, 0);
                 std::sprintf(outputbuf->data(), commit_msg.c_str(), payload_msg_buf.data());
-                std::printf("Found answer: git commit -m '%s' --date '%ld +0800', hash: \n", outputbuf->data(), payload_ts_count);
+                std::printf("Found answer: GIT_COMMITTER_DATE='%ld +0800' git commit -m '%s' --date '%ld +0800', hash: \n", payload_ts_count, outputbuf->data(), payload_ts_count);
                 dump(hashbuf, 20);
+                // TODO: debug msg to show hashed databuf
                 exit(0);
             }
         }
@@ -86,10 +87,10 @@ void crack_thread(const std::string catfile_fmt, long timestamp_begin, long time
 }
 
 int main() {
-    auto commit_msg = "Bug fix %s";
+    auto commit_msg = "Update doc %s";
     auto catfile_text = 
-R"TXT(tree bd79de44c0e12c9b0969dae3ea31b520aad09f75
-parent d9074a1cb3c8fee13c7563ba4be0fc1e9fec6a79
+R"TXT(tree 02b900fadfdd40d74c23a3f7fd943e4fb15fdca9
+parent f8a6d039e7647ff54e6cf5a2d109ddf5c041ea86
 author Recolic K <bensl@microsoft.com> %ld +0800
 committer Recolic K <bensl@microsoft.com> %ld +0800
 
