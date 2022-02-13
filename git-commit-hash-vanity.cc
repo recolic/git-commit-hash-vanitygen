@@ -42,12 +42,12 @@ size_t gen_payload_msg(std::string &outputbuf, long count) {
 /*
  * databuf:
  * ---------------------------------------------------------------
- * | commit XXX |            sprintf(fmt, args)                  |
+ * | commit XXX \0 |            sprintf(fmt, args)                  |
  * ---------------------------------------------------------------
- * 0            10                                               64
- *              --------------------------------------------------
- *              | fmt  timestamp  fmt  timestamp   payload_msg   |
- *              --------------------------------------------------
+ * 0               11                                               64
+ *                 --------------------------------------------------
+ *                 | fmt  timestamp  fmt  timestamp   payload_msg   |
+ *                 --------------------------------------------------
  */
 void crack_thread(const std::string catfile_fmt, long timestamp_begin, long timestamp_end, const std::string commit_msg) {
     std::string databuf (catfile_fmt.size() + 64, 0); // hardcoded to 64, payload_msgbuf should be enough. 
@@ -57,26 +57,32 @@ void crack_thread(const std::string catfile_fmt, long timestamp_begin, long time
     auto catfile_result_size_log10 = (size_t)std::log10(catfile_fmt.size()); // Code error for speedup: assuming log10(fmt.size) == log10(result.size)
     assertm((size_t)std::log10(catfile_fmt.size() + 64) == catfile_result_size_log10, "If this failed, std::sprintf MAY fail. fmt.size < result.size < databuf.size");
     assertm(2 == catfile_result_size_log10, "If this failed, we must adjust the buf below.");
-    const char _commitXXX_msgbuf[] = "commit XXX";
-    std::memcpy(databuf.data(), _commitXXX_msgbuf, sizeof(_commitXXX_msgbuf));
+    const char _commitXXX_msgbuf[] = "commit XXX"; // Using assumption in previous line: size_log10 == 2
+    const auto _commitXXX_msgbuf_size = sizeof(_commitXXX_msgbuf);
     
     for(long payload_msg_count = 0; ; ++payload_msg_count) {
         auto payload_msg_size = gen_payload_msg(payload_msg_buf, payload_msg_count);
         for(long payload_ts_count = timestamp_begin; payload_ts_count < timestamp_end; ++payload_ts_count) {
             // populate databuf. payload_msg_buf.data() would always have NULL-ending. 
-            auto ns_size = std::sprintf(databuf.data() + sizeof(_commitXXX_msgbuf), catfile_fmt.data(), payload_ts_count, payload_ts_count, payload_msg_buf.data());
+            auto body_size = std::sprintf(databuf.data() + _commitXXX_msgbuf_size, catfile_fmt.data(), payload_ts_count, payload_ts_count, payload_msg_buf.data());
+            auto head_size = std::sprintf(databuf.data(), "commit %lu", body_size) + 1; // plus tailing \0
 #ifdef DEBUG
-            assertm(ns_size + sizeof(_commitXXX_msgbuf) <= databuf.size(), "If this failed, memory will mess up.");
-            assertm(ns_size > 0, "If this failed, sprintf failed.");
+            assertm(head_size == _commitXXX_msgbuf_size, "If this failed, assumption in line 59 failed.");
+            assertm(body_size + head_size <= databuf.size(), "If this failed, memory will mess up.");
+            assertm(body_size > 0, "If this failed, sprintf failed.");
 #endif
-            SHA1((byteptr)databuf.data(), ns_size + sizeof(_commitXXX_msgbuf), hashbuf);
-            if(unlikely(*(uint16_t *)hashbuf == 0)) {
+            // databuf is ready. Calculate the SHA1
+            SHA1((byteptr)databuf.data(), body_size + head_size, hashbuf);
+            if(unlikely(*(uint16_t *)hashbuf == 0 && hashbuf[2] == 0)) {
                 // TODO: add more requirement for check-hash
                 auto outputbuf = new std::string(commit_msg.size() + 128, 0);
                 std::sprintf(outputbuf->data(), commit_msg.c_str(), payload_msg_buf.data());
-                std::printf("Found answer: GIT_COMMITTER_DATE='%ld +0800' git commit -m '%s' --date '%ld +0800', hash: \n", payload_ts_count, outputbuf->data(), payload_ts_count);
+                std::printf("Found answer: GIT_COMMITTER_DATE='%ld +0800' git commit -m '%s' --date '%ld +0800'\n", payload_ts_count, outputbuf->data(), payload_ts_count);
+#ifdef DEBUG
                 dump(hashbuf, 20);
-                // TODO: debug msg to show hashed databuf
+                databuf[head_size-1] = '|';
+                std::printf("DEBUG: DATABUF >>>%s<<<, body_size=%ld\n", databuf.data(), body_size);
+#endif
                 exit(0);
             }
         }
@@ -87,12 +93,12 @@ void crack_thread(const std::string catfile_fmt, long timestamp_begin, long time
 }
 
 int main() {
-    auto commit_msg = "Update doc %s";
+    auto commit_msg = "First working version %s";
     auto catfile_text = 
-R"TXT(tree 02b900fadfdd40d74c23a3f7fd943e4fb15fdca9
-parent f8a6d039e7647ff54e6cf5a2d109ddf5c041ea86
-author Recolic K <bensl@microsoft.com> %ld +0800
-committer Recolic K <bensl@microsoft.com> %ld +0800
+R"TXT(tree 1c07746418a39b77f3ffdd9661afe8369d7e35d7
+parent 3d58156772f3bfd5b1ab303b05dc8f8c1483e845
+author Recolic Keghart <root@recolic.net> %ld +0800
+committer Recolic Keghart <root@recolic.net> %ld +0800
 
 )TXT"s + commit_msg + "\n";
     // This program may generate git commit within the following time range. 
