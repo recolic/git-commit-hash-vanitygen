@@ -1,8 +1,15 @@
+# Git commit-hash vanity
 
-1. Run `git commit`
-2. Run `git cat-file commit HEAD`
-3. Run `git reset HEAD~1 --soft`. 
-4. Modify the `catfile_text` and `commit_msg` in `main()` , also modify the hash condition `if(unlikely(*(uint16_t *)hashbuf == 0))`. Also search for `+0800` if you need to modify timezone. 
-5. Commit the result. (You should commit exactly the same changes)
+If you want your git-commit hash looks strange, use me! 
+
+## Installation
+
+Download this project and `make install`. 
+
+## Usage
+
+In your own git repo, you just run `vgitcommit 'Update documents. %s'` instead of running `git commit -m 'Update documents'`. 
+
+By default, this tool generates commit-hash with 8 leading-zero. If you want to change this behavior, just modify line 83 of `git-commit-hash-vanity.cc`. 
 
 
