@@ -1,0 +1,43 @@
+#!/bin/bash
+# You run this script instead of git-commit-hash-vanitygen to generate a commit. 
+# 
+
+_self_bin_name="$0"
+function where_is_him () {
+    SOURCE="$1"
+    while [ -h "$SOURCE" ]; do # resolve $SOURCE until the file is no longer a symlink
+        DIR="$( cd -P "$( dirname "$SOURCE" )" && pwd )"
+        SOURCE="$(readlink "$SOURCE")"
+        [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE" # if $SOURCE was a relative symlink, we need to resolve it relative to the path where the symlink file was located
+    done
+    DIR="$( cd -P "$( dirname "$SOURCE" )" && pwd )"
+    echo -n "$DIR"
+}
+function where_am_i () {
+    _my_path=`type -p ${_self_bin_name}`
+    [[ "$_my_path" = "" ]] && where_is_him "$_self_bin_name" || where_is_him "$_my_path"
+}
+vanity_bin="$(where_am_i)/git-commit-hash-vanity"
+
+######################################################
+# script starts here
+
+[[ $1 = "" ]] && echo "Usage: $0 'Your Commit Message %s'" && exit 1
+
+git commit -m '__tmp_commit_by_git-commit-hash-vanitygen' &&
+    treehash=`git cat-file commit HEAD | head -n1 | cut -d ' ' -f 2` &&
+    git reset HEAD~1 --soft ||
+    exit $?
+
+parhash=`git rev-parse HEAD` &&
+    author="$(git config user.name) <$(git config user.email)>" &&
+    timezone=`date +%z` ||
+    exit $?
+
+result_cmd=`"$vanity_bin" --msg "$1" --tree "$treehash" --parent "$parhash" --author "$author" --timezone "$timezone"` &&
+    echo "Executing command: $result_cmd" &&
+    eval "$result_cmd" ||
+    exit $?
+
+
+

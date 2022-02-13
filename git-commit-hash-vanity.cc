@@ -6,7 +6,10 @@
 #include <cassert>
 #include <cmath>
 #include <cstring>
-using namespace std::literals;
+#include <rlib/stdio.hpp>
+#include <rlib/string.hpp>
+#include <rlib/opt.hpp>
+using namespace rlib::literals;
 
 #define assertm(exp, msg) assert(((void)msg, exp))
 #define likely(x)       __builtin_expect((x),1)
@@ -15,9 +18,9 @@ using byteptr = unsigned char *;
 
 void dump( const unsigned char *p, unsigned int n ) {
   for ( unsigned int i = 0; i < n; i++ ) {
-     std::cout << std::hex << (unsigned int)(p[i]) << " ";
+     std::cerr << std::hex << (unsigned int)(p[i]) << " ";
   }
-  std::cout << std::endl;
+  std::cerr << std::endl;
 }
 
 
@@ -81,32 +84,42 @@ void crack_thread(const std::string catfile_fmt, long timestamp_begin, long time
                     // TODO: add more requirement for check-hash
                     auto outputbuf = new std::string(commit_msg.size() + 128, 0);
                     std::sprintf(outputbuf->data(), commit_msg.c_str(), payload_msg_buf.data());
-                    std::printf("Found answer: GIT_COMMITTER_DATE='%ld +0800' git commit -m '%s' --date '%ld +0800'\n", payload_ts_count_2, outputbuf->data(), payload_ts_count_1);
+                    std::printf("GIT_COMMITTER_DATE='%ld +0800' git commit -m '%s' --date '%ld +0800'\n", payload_ts_count_2, outputbuf->data(), payload_ts_count_1);
 #ifdef DEBUG    
                     dump(hashbuf, 20);
                     databuf[head_size-1] = '|';
-                    std::printf("DEBUG: DATABUF >>>%s<<<, body_size=%ld\n", databuf.data(), body_size);
+                    std::fprintf(stderr, "DEBUG: DATABUF >>>%s<<<, body_size=%ld\n", databuf.data(), body_size);
 #endif
                     exit(0);
                 }
             }
         }
         // No need to cleanup payload_msg_buf, because it only grows larger. Next call would overwrite it. 
-        if(payload_msg_count % 0x8000 == 0)
-            std::printf("Thread finished %ld operations\n", payload_msg_count * (timestamp_end - timestamp_begin));
+        if(payload_msg_count % 0x100 == 0)
+            std::fprintf(stderr, "Thread finished %ld operations\n", payload_msg_count * (timestamp_end - timestamp_begin) * (timestamp_end - timestamp_begin));
     }
 }
 
-int main() {
-    auto commit_msg = "First working version %s";
-    auto catfile_text = 
-R"TXT(tree db31568810a3fb76a8c127014f883f254180cb6d
-parent 3d58156772f3bfd5b1ab303b05dc8f8c1483e845
-author Recolic Keghart <root@recolic.net> %ld +0800
-committer Recolic Keghart <root@recolic.net> %ld +0800
+int main(int argc, char **argv) {
+    rlib::opt_parser args(argc, argv);
+    if(args.getBoolArg("--help", "-h")) {
+        rlib::printfln(std::cerr, "Usage: {} --msg 'Update doc %s' --tree ce75e3b2f81907d4481569d753b7351321553579 --parent 0000000acda3fd97f5880cf0834c9498e01e774e --author 'Recolic Keghart <root@recolic.net>' --timezone '+0800'", args.getSelf());
+        return 1;
+    }
+    auto commit_msg = args.getValueArg("--msg", "-m");
+    auto tree_hash = args.getValueArg("--tree", "-t");
+    auto parent_hash = args.getValueArg("--parent", "-p");
+    auto author = args.getValueArg("--author", "-a");
+    auto timezone = args.getValueArg("--timezone", "-z", false, "+0800");
+    if(commit_msg.find("%s") == std::string::npos) throw std::invalid_argument("commit_msg must contain exactly one '%s'. ");
 
-)TXT"s + commit_msg + "\n";
-    // This program may generate git commit within the following time range. 
+    auto catfile_text = 
+R"TXT(tree {}
+parent {}
+author {} %ld {}
+committer {} %ld {}
+
+)TXT"_format(tree_hash, parent_hash, author, timezone, author, timezone) + commit_msg + "\n";
     auto timestamp_center = std::chrono::duration_cast<std::chrono::seconds>(
         std::chrono::system_clock::now().time_since_epoch()
     ).count();
