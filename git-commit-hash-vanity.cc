@@ -1,6 +1,7 @@
 #include "openssl/sha.h"
 #include <string>
 #include <chrono>
+#include <thread>
 #include <iostream>
 #include <cassert>
 #include <cmath>
@@ -61,29 +62,33 @@ void crack_thread(const std::string catfile_fmt, long timestamp_begin, long time
     const auto _commitXXX_msgbuf_size = sizeof(_commitXXX_msgbuf);
     
     for(long payload_msg_count = 0; ; ++payload_msg_count) {
-        auto payload_msg_size = gen_payload_msg(payload_msg_buf, payload_msg_count);
-        for(long payload_ts_count = timestamp_begin; payload_ts_count < timestamp_end; ++payload_ts_count) {
-            // populate databuf. payload_msg_buf.data() would always have NULL-ending. 
-            auto body_size = std::sprintf(databuf.data() + _commitXXX_msgbuf_size, catfile_fmt.data(), payload_ts_count, payload_ts_count, payload_msg_buf.data());
-            auto head_size = std::sprintf(databuf.data(), "commit %lu", body_size) + 1; // plus tailing \0
-#ifdef DEBUG
-            assertm(head_size == _commitXXX_msgbuf_size, "If this failed, assumption in line 59 failed.");
-            assertm(body_size + head_size <= databuf.size(), "If this failed, memory will mess up.");
-            assertm(body_size > 0, "If this failed, sprintf failed.");
+        const auto payload_msg_size = gen_payload_msg(payload_msg_buf, payload_msg_count);
+        for(long payload_ts_count_1 = timestamp_begin; payload_ts_count_1 < timestamp_end; ++payload_ts_count_1) {
+            for(long payload_ts_count_2 = timestamp_begin; payload_ts_count_2 < timestamp_end; ++payload_ts_count_2) {
+                // populate databuf. payload_msg_buf.data() would always have NULL-ending. 
+                const auto body_size = std::sprintf(databuf.data() + _commitXXX_msgbuf_size, catfile_fmt.data(), payload_ts_count_1, payload_ts_count_2, payload_msg_buf.data());
+                const auto head_size = std::sprintf(databuf.data(), "commit %lu", body_size) + 1; // plus tailing \0
+#ifdef DEBUG    
+                assertm(head_size == _commitXXX_msgbuf_size, "If this failed, assumption in line 59 failed.");
+                assertm(body_size + head_size <= databuf.size(), "If this failed, memory will mess up.");
+                assertm(body_size > 0, "If this failed, sprintf failed.");
 #endif
-            // databuf is ready. Calculate the SHA1
-            SHA1((byteptr)databuf.data(), body_size + head_size, hashbuf);
-            if(unlikely(*(uint16_t *)hashbuf == 0 && hashbuf[2] == 0)) {
-                // TODO: add more requirement for check-hash
-                auto outputbuf = new std::string(commit_msg.size() + 128, 0);
-                std::sprintf(outputbuf->data(), commit_msg.c_str(), payload_msg_buf.data());
-                std::printf("Found answer: GIT_COMMITTER_DATE='%ld +0800' git commit -m '%s' --date '%ld +0800'\n", payload_ts_count, outputbuf->data(), payload_ts_count);
-#ifdef DEBUG
-                dump(hashbuf, 20);
-                databuf[head_size-1] = '|';
-                std::printf("DEBUG: DATABUF >>>%s<<<, body_size=%ld\n", databuf.data(), body_size);
+                // databuf is ready. Calculate the SHA1
+                SHA1((byteptr)databuf.data(), body_size + head_size, hashbuf);
+
+                // Check if the hash is good
+                if(unlikely(*(uint32_t *)hashbuf == 0)) {
+                    // TODO: add more requirement for check-hash
+                    auto outputbuf = new std::string(commit_msg.size() + 128, 0);
+                    std::sprintf(outputbuf->data(), commit_msg.c_str(), payload_msg_buf.data());
+                    std::printf("Found answer: GIT_COMMITTER_DATE='%ld +0800' git commit -m '%s' --date '%ld +0800'\n", payload_ts_count_2, outputbuf->data(), payload_ts_count_1);
+#ifdef DEBUG    
+                    dump(hashbuf, 20);
+                    databuf[head_size-1] = '|';
+                    std::printf("DEBUG: DATABUF >>>%s<<<, body_size=%ld\n", databuf.data(), body_size);
 #endif
-                exit(0);
+                    exit(0);
+                }
             }
         }
         // No need to cleanup payload_msg_buf, because it only grows larger. Next call would overwrite it. 
@@ -95,7 +100,7 @@ void crack_thread(const std::string catfile_fmt, long timestamp_begin, long time
 int main() {
     auto commit_msg = "First working version %s";
     auto catfile_text = 
-R"TXT(tree 1c07746418a39b77f3ffdd9661afe8369d7e35d7
+R"TXT(tree db31568810a3fb76a8c127014f883f254180cb6d
 parent 3d58156772f3bfd5b1ab303b05dc8f8c1483e845
 author Recolic Keghart <root@recolic.net> %ld +0800
 committer Recolic Keghart <root@recolic.net> %ld +0800
@@ -105,7 +110,11 @@ committer Recolic Keghart <root@recolic.net> %ld +0800
     auto timestamp_center = std::chrono::duration_cast<std::chrono::seconds>(
         std::chrono::system_clock::now().time_since_epoch()
     ).count();
+    auto thread_count = std::thread::hardware_concurrency();
 
-    crack_thread(catfile_text, timestamp_center - 300, timestamp_center + 300, commit_msg);
+    for(auto i = 0; i < thread_count; ++i) {
+        std::thread(crack_thread, catfile_text, timestamp_center + 300*i, timestamp_center + 300*(i+1), commit_msg).detach();
+    }
+    std::this_thread::sleep_until(std::chrono::system_clock::now() + std::chrono::hours(std::numeric_limits<int>::max()));
 }
 
